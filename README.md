@@ -27,6 +27,7 @@ Even with encrypted data written to sector 1, when the implant is read from a de
 Software: python3, openssl, jq ,csvtojson
 
 • sudo apt install -y python3 openssl jq npm
+
 • sudo npm -g install csvtojson
 
 Hardware: Proxmark3

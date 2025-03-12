@@ -26,7 +26,10 @@ Even with encrypted data written to sector 1, when the implant is read from a de
 
 Software: python3, openssl, jq ,csvtojson
 
-Hardware: proxmark3
+• sudo apt install -y python3 openssl jq npm
+• sudo npm -g install csvtojson
+
+Hardware: Proxmark3
 
 Usage:
 
@@ -49,9 +52,13 @@ reddit.com,reddituser,Password2
 
 5.  `python3 biovault.py -m w -z`
 
-- Dump, carve, decrypt and read the stored file:
+- Dump, carve, decrypt and write the stored file to vault.txt.dec:
 
-6.  `python3 biovault.py -m r` 
+6.  `python3 biovault.py -m r`
+
+- Securely shred and delete vault.txt.dec:
+
+7.  `python3 biovault.py -s`
 
 
 *Note:* 

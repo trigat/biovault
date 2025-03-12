@@ -6,7 +6,7 @@ from threading import Thread
 from itertools import cycle
 from shutil import get_terminal_size
 from time import sleep
-from subprocess import PIPE, Popen
+import subprocess
 
 # Author: Shain Lakin
 
@@ -65,6 +65,7 @@ class Loader:
 parser = argparse.ArgumentParser(description="", \
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("-m", "--mode", type=str, default="r", help="Read/Write to vault")
+parser.add_argument("-s", "--shred", action="store_true", help="Securely delete decrypted vault file")
 parser.add_argument("-z", "--zero", action='store_true',  help="Zero sector with null bytes" )
 args = parser.parse_args()
 
@@ -73,7 +74,7 @@ zero = f"{pm3_path}pm3 -c \'script run hf_i2c_plus_2k_utils -s 1 -m f -f zero.nu
 aes_enc = f"openssl aes-256-cbc -salt -pbkdf2 -in vault.txt -out vault.txt.enc"
 write_vault = f"{pm3_path}pm3 -c \'script run hf_i2c_plus_2k_utils -s 1 -m f -f vault.txt.enc\'"
 
-dump_vault = f"{pm3_path}pm3 -c \'script run hf_i2c_plus_2k_utils -s 1 -m d\' >/dev/null 2>&1"
+dump_vault = f"{pm3_path}pm3 -c \'script run hf_i2c_plus_2k_utils -s 1 -m d\'" # >/dev/null 2>&1"
 extract = f"/bin/cat {uid}.hex | awk -F \'{pre}\' \'{{print $2}}\' > dump.bin"
 reverse_hex = "xxd -r -ps dump.bin > vault.txt.enc"
 aes_dec = "openssl aes-256-cbc -d -pbkdf2 -in vault.txt.enc -out vault.txt.dec"
@@ -83,11 +84,19 @@ display = "csvtojson vault.txt.dec | jq"
 # Process function
 def proc(cmd):
     try:
-        proc = Popen(f"{cmd}".split(), \
-            stdin=PIPE, stdout=PIPE, stderr=PIPE)
-        proc.communicate()
+        process = subprocess.Popen(f"{cmd}".split(), \
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process.communicate()
     except KeyboardInterrupt:
         exit(0)
+
+
+# Secure delete
+def secure_delete(filename):
+    try:
+        subprocess.run(f"shred -u {filename}", shell=True, check=True)
+    except Exception as e:
+        print(f"[!] Failed to securely delete {filename}: {e}")
 
 
 # Create null byte file
@@ -96,29 +105,35 @@ def zero_file():
         z.write(b"\0" * 3000)
 
 
-# Delete files
+# Delete files securely
 def clean():
     if args.mode == 'w':
-        os.remove("vault.txt")
-        os.remove("vault.txt.enc")
+        secure_delete("vault.txt")
+        secure_delete("vault.txt.enc")
         if args.zero:
             os.remove("zero.null")
     elif args.mode == 'r':
         os.remove(f"{uid}.hex")
         os.remove("dump.bin")
-        os.remove("vault.txt.enc")
-        os.remove("vault.txt.dec")
+        secure_delete("vault.txt.enc")
+
 
 # Loading function
 def wait():
-    loader = Loader("[+] Place proxmark on implant .. sleeping for 10").start()
-    sleep(10)
+    loader = Loader("[+] Place proxmark on implant .. sleeping for 5").start()
+    sleep(5)
     loader.stop()
     print("[+] Reading data ...")
 
 
 def main():
     try:
+        if args.shred:
+            print("[+] Securely deleting decrypted vault file...")
+            result = subprocess.run("shred -u vault.txt.dec", shell=True)
+            if result.returncode == 0:
+                print("[+] File shredded")
+            return  # Exit after shredding
         if args.mode == 'r':
             tag_path = ("./" + uid + ".hex")
             wait()
@@ -127,7 +142,8 @@ def main():
                 os.system(extract)
                 os.system(reverse_hex)
                 proc(aes_dec)
-                os.system(display)
+                os.chmod("vault.txt.dec", 0o600)  # Read/write only for the owner
+                print("[+] Decrypted file generated")
                 clean()
             else:
                 print("[!] Cannot read tag")
@@ -138,10 +154,16 @@ def main():
                 os.system(zero)
             proc(aes_enc)
             wait()
-            os.system(write_vault)
+            # Run write_vault with error checking
+            result = subprocess.run(write_vault, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:  # Check if an error occurred
+                print(f"[-] Error: {result.stderr.decode().strip()}")
+                print("[!] RFID chip might not be properly placed.")
+                return  # Skip the clean() call and exit if there's an error
             clean()
     except Exception as e:
         print(e)
         exit(0)
+
 
 main()
